@@ -288,16 +288,22 @@ function tdk(){return new Date().toISOString().slice(0,10)}
 function gcls(){return CLS.find(c=>c.id===S.prof.cid)||CLS[0]}
 
 let isRec=false;
-let S={tasks:[],quests:[],xp:0,dxp:{},comp:0,tot:0,streak:0,lastD:null,unl:new Set(),hist:{},sxp:0,scomp:0,qcomp:0,prof:{name:'Héros',cid:'guerrier'},lr:null};
+let S={tasks:[],quests:[],xp:0,dxp:{},comp:0,tot:0,streak:0,lastD:null,unl:new Set(),hist:{},sxp:0,scomp:0,qcomp:0,prof:{name:'Héros',cid:'guerrier'},lr:null,taskHist:[]};
 
 function ld(){
-  try{const d=localStorage.getItem('lrpg5');if(d){const p=JSON.parse(d);S={...S,...p,unl:new Set(p.unl||[])};['hist','quests','dxp'].forEach(k=>{if(!S[k])S[k]=k==='quests'?[]:{}});if(!S.prof)S.prof={name:'Héros',cid:'guerrier'}}}catch(e){}
+  try{const d=localStorage.getItem('lrpg5');if(d){const p=JSON.parse(d);S={...S,...p,unl:new Set(p.unl||[])};['hist','quests','dxp'].forEach(k=>{if(!S[k])S[k]=k==='quests'?[]:{}});if(!S.prof)S.prof={name:'Héros',cid:'guerrier'};if(!S.taskHist)S.taskHist=[]}}catch(e){}
 }
 function sv(){try{localStorage.setItem('lrpg5',JSON.stringify({...S,unl:[...S.unl]}))}catch(e){}}
 
 function resetRec(){
   const t=tdk();if(S.lr===t)return;
+  // Reset recurring tasks
   S.tasks.forEach(t=>{if(t.rec&&t.dn)t.dn=false});
+  // Archive and remove completed non-recurring tasks
+  const done=S.tasks.filter(t=>!t.rec&&t.dn);
+  done.forEach(t=>S.taskHist.unshift({...t,completedDay:S.lr||tdk()}));
+  S.taskHist=S.taskHist.slice(0,100); // keep last 100
+  S.tasks=S.tasks.filter(t=>!((!t.rec)&&t.dn));
   S.lr=t;sv();
 }
 
@@ -333,7 +339,8 @@ function addTask(){
 function togTask(i){
   const t=S.tasks[i];if(t.dn)return;
   const ol=clvl(S.xp).lv;
-  t.dn=true;S.xp+=t.xp;S.dxp[t.dom]=(S.dxp[t.dom]||0)+t.xp;
+  t.dn=true;t.completedDay=tdk();
+  S.xp+=t.xp;S.dxp[t.dom]=(S.dxp[t.dom]||0)+t.xp;
   S.comp++;S.sxp+=t.xp;S.scomp++;updStreak();
   const tk=tdk();S.hist[tk]=(S.hist[tk]||0)+t.xp;
   const nl=clvl(S.xp).lv;if(nl>ol)showLU(nl);
@@ -488,10 +495,24 @@ function rRecap(){
   for(let i=6;i>=0;i--){
     const d=new Date(Date.now()-i*86400000);const k=d.toISOString().slice(0,10);
     const dn=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][d.getDay()];
-    l7.push({xp:S.hist[k]||0,lb:dn+' '+d.getDate()+'/'+(d.getMonth()+1)});
+    l7.push({xp:S.hist[k]||0,lb:dn+' '+d.getDate()+'/'+(d.getMonth()+1),key:k});
   }
   if(!l7.some(d=>d.xp>0)){rh.innerHTML='<div class="emp">AUCUN HISTORIQUE</div>';return}
-  rh.innerHTML=l7.map(d=>`<div class="rl">${d.lb} — <span>+${d.xp} XP</span></div>`).join('');
+  // Group archived tasks by day
+  const tasksByDay={};
+  S.taskHist.forEach(t=>{if(!tasksByDay[t.completedDay])tasksByDay[t.completedDay]=[];tasksByDay[t.completedDay].push(t)});
+  // Also include today's done tasks
+  const todayDone=S.tasks.filter(t=>t.dn&&t.completedDay===today);
+  if(todayDone.length){tasksByDay[today]=[...(tasksByDay[today]||[]),...todayDone]}
+
+  rh.innerHTML=l7.filter(d=>d.xp>0).reverse().map(d=>{
+    const tasks=tasksByDay[d.key]||[];
+    const taskList=tasks.length?'<div style="padding-left:8px;margin-top:2px">'+tasks.map(t=>`<div style="font-size:11px;color:rgba(0,212,255,.4);line-height:1.8">· ${t.txt} <span style="color:rgba(255,183,0,.5)">+${t.xp}xp</span></div>`).join('')+'</div>':'';
+    return`<div style="margin-bottom:8px">
+      <div class="rl">${d.lb} — <span>+${d.xp} XP</span></div>
+      ${taskList}
+    </div>`;
+  }).join('');
 }
 
 function rProfile(){
